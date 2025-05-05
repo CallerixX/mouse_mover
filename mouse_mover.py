@@ -413,7 +413,7 @@ class MouseMoverApp(QMainWindow):
 
     def perform_update(self):
         try:
-            self.log_signal.emit("Начато скачивание обновления...")
+            self.log_signal.emit("Начато обновление...")
 
             # Получаем URL архива
             self.log_signal.emit("Запрос информации о последнем релизе...")
@@ -439,25 +439,40 @@ class MouseMoverApp(QMainWindow):
                         f.write(chunk)
             self.log_signal.emit("Архив успешно скачан")
 
-            # Проверяем, существует ли архив
+            # Проверяем существование архива
             if not os.path.exists("update.zip"):
-                self.log_signal.emit("Ошибка: Архив update.zip не был создан")
+                self.log_signal.emit("Ошибка: Файл update.zip не найден")
+                return
+            self.log_signal.emit("Файл update.zip найден, размер: {} байт".format(os.path.getsize("update.zip")))
+
+            # Проверяем, является ли файл действительным ZIP
+            self.log_signal.emit("Проверка целостности архива...")
+            try:
+                with zipfile.ZipFile("update.zip", "r") as zip_ref:
+                    zip_ref.testzip()  # Проверка целостности архива
+                    self.log_signal.emit("Архив валиден")
+            except zipfile.BadZipFile as e:
+                self.log_signal.emit(f"Ошибка: Архив update.zip поврежден: {str(e)}")
+                return
+            except Exception as e:
+                self.log_signal.emit(f"Ошибка при проверке архива: {str(e)}")
                 return
 
             # Распаковываем архив
-            self.log_signal.emit("Распаковка обновления...")
+            self.log_signal.emit("Распаковка архива в update_temp...")
             try:
                 with zipfile.ZipFile("update.zip", "r") as zip_ref:
                     zip_ref.extractall("update_temp")
                 self.log_signal.emit("Архив успешно распакован")
-            except zipfile.BadZipFile:
-                self.log_signal.emit("Ошибка: Архив update.zip поврежден")
+            except Exception as e:
+                self.log_signal.emit(f"Ошибка при распаковке архива: {str(e)}")
                 return
 
             # Проверяем наличие папки update_temp
             if not os.path.exists("update_temp"):
                 self.log_signal.emit("Ошибка: Папка update_temp не создана")
                 return
+            self.log_signal.emit("Папка update_temp создана")
 
             # Заменяем файлы
             self.log_signal.emit("Копирование новых файлов...")
@@ -472,12 +487,13 @@ class MouseMoverApp(QMainWindow):
                         self.log_signal.emit(f"Пропуск копирования текущего скрипта: {file}")
                         continue
 
+                    self.log_signal.emit(f"Копирование файла: {rel_path}")
                     os.makedirs(os.path.dirname(dst_path), exist_ok=True)
                     try:
                         shutil.copy2(src_path, dst_path)
-                        self.log_signal.emit(f"Обновлен файл: {rel_path}")
-                    except PermissionError:
-                        self.log_signal.emit(f"Ошибка: Нет прав для замены файла {rel_path}")
+                        self.log_signal.emit(f"Успешно скопирован файл: {rel_path}")
+                    except PermissionError as e:
+                        self.log_signal.emit(f"Ошибка: Нет прав для копирования файла {rel_path}: {str(e)}")
                         return
                     except Exception as e:
                         self.log_signal.emit(f"Ошибка при копировании файла {rel_path}: {str(e)}")
@@ -494,12 +510,16 @@ class MouseMoverApp(QMainWindow):
 
             # Очищаем временные файлы
             self.log_signal.emit("Очистка временных файлов...")
-            shutil.rmtree("update_temp", ignore_errors=True)
-            os.remove("update.zip")
-            self.log_signal.emit("Временные файлы удалены")
+            try:
+                shutil.rmtree("update_temp", ignore_errors=True)
+                os.remove("update.zip")
+                self.log_signal.emit("Временные файлы удалены")
+            except Exception as e:
+                self.log_signal.emit(f"Ошибка при очистке временных файлов: {str(e)}")
+                return
 
             # Перезапуск приложения
-            self.log_signal.emit(f"Запуск команды: {sys.executable} {sys.argv[0]}")
+            self.log_signal.emit(f"Перезапуск приложения: {sys.executable} {os.path.abspath(sys.argv[0])}")
             subprocess.Popen([sys.executable, os.path.abspath(sys.argv[0])])
             QApplication.quit()
 
