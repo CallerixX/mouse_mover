@@ -403,70 +403,70 @@ class MouseMoverApp(QMainWindow):
             QMessageBox.information(self, 'Обновлений нет', "У вас установлена последняя версия")
 
     def perform_update(self):
-    try:
-        self.log_signal.emit("=== Начало процесса обновления ===")
-        
-        # Получаем данные о последнем релизе
-        response = requests.get(
-            "https://api.github.com/repos/CallerixX/mouse_mover/releases/latest",
-            timeout=10
-        )
-        response.raise_for_status()
-        data = response.json()
-        self.log_signal.emit(f"Данные релиза: {data.get('tag_name')}")
+        try:
+            self.log_signal.emit("=== Начало процесса обновления ===")
+            
+            # Получаем данные о последнем релизе
+            response = requests.get(
+                "https://api.github.com/repos/CallerixX/mouse_mover/releases/latest",
+                timeout=10
+            )
+            response.raise_for_status()
+            data = response.json()
+            self.log_signal.emit(f"Данные релиза: {data.get('tag_name')}")
 
-        # Ищем ZIP-архив
-        assets = data.get("assets", [])
-        if not assets:
-            raise Exception("Нет файлов для скачивания в релизе")
+            # Ищем ZIP-архив
+            assets = data.get("assets", [])
+            if not assets:
+                raise Exception("Нет файлов для скачивания в релизе")
 
-        download_url = None
-        for asset in assets:
-            if asset["name"].lower().endswith(".zip"):
-                download_url = asset["browser_download_url"]
-                self.log_signal.emit(f"Найден архив: {asset['name']}")
-                break
+            download_url = None
+            for asset in assets:
+                if asset["name"].lower().endswith(".zip"):
+                    download_url = asset["browser_download_url"]
+                    self.log_signal.emit(f"Найден архив: {asset['name']}")
+                    break
 
-        if not download_url:
-            raise Exception("ZIP-архив не найден в активах")
+            if not download_url:
+                raise Exception("ZIP-архив не найден в активах")
 
-        # Скачивание
-        self.log_signal.emit(f"Скачивание из {download_url}...")
-        zip_path = os.path.join(os.path.dirname(__file__), "update.zip")
-        
-        if platform.system() == "Windows":
-            import urllib.request
-            urllib.request.urlretrieve(download_url, zip_path)
-        else:
-            os.system(f"curl -L {download_url} -o {zip_path}")
+            # Скачивание
+            self.log_signal.emit(f"Скачивание из {download_url}...")
+            zip_path = os.path.join(os.path.dirname(__file__), "update.zip")
+            
+            if platform.system() == "Windows":
+                import urllib.request
+                urllib.request.urlretrieve(download_url, zip_path)
+            else:
+                os.system(f"curl -L {download_url} -o {zip_path}")
 
-        # Распаковка
-        self.log_signal.emit("Распаковка...")
-        if platform.system() == "Windows":
-            import zipfile
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(os.path.dirname(__file__))
-        else:
-            os.system(f"unzip -o {zip_path} -d {os.path.dirname(__file__)}")
+            # Распаковка
+            self.log_signal.emit("Распаковка...")
+            if platform.system() == "Windows":
+                import zipfile
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(os.path.dirname(__file__))
+            else:
+                os.system(f"unzip -o {zip_path} -d {os.path.dirname(__file__)}")
 
-        # Удаление архива
-        if os.path.exists(zip_path):
-            os.remove(zip_path)
-            self.log_signal.emit("Временный архив удалён")
+            # Удаление архива
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+                self.log_signal.emit("Временный архив удалён")
 
-        # Перезапуск
-        self.log_signal.emit("Завершено. Перезапуск...")
-        QApplication.quit()
-        
-        # Запуск новой версии
-        if getattr(sys, 'frozen', False):
-            os.startfile(sys.executable)
-        else:
-            os.execl(sys.executable, sys.executable, *sys.argv)
+            # Перезапуск
+            self.log_signal.emit("Завершено. Перезапуск...")
+            QApplication.quit()
+            
+            # Запуск новой версии
+            if getattr(sys, 'frozen', False):
+                os.startfile(sys.executable)
+            else:
+                os.execl(sys.executable, sys.executable, *sys.argv)
 
-    except Exception as e:
-        self.log_signal.emit(f"!!! ОШИБКА ОБНОВЛЕНИЯ: {str(e)}")
-        QMessageBox.critical(self, "Ошибка", f"Не удалось обновить: {str(e)}")
+        except Exception as e:
+            self.log_signal.emit(f"!!! ОШИБКА ОБНОВЛЕНИЯ: {str(e)}")
+            QMessageBox.critical(self, "Ошибка", f"Не удалось обновить: {str(e)}")
 
     def update_status(self, active):
         color = "#00FF00" if active else "#FF0000"
