@@ -403,26 +403,52 @@ class MouseMoverApp(QMainWindow):
             QMessageBox.information(self, 'Обновлений нет', "У вас установлена последняя версия")
 
     def perform_update(self):
-        try:
-            # Скачать релиз
-            response = requests.get(
-                "https://api.github.com/repos/CallerixX/mouse_mover/releases/latest"
-            )
-            assets = response.json()["assets"]
-            download_url = assets[0]["browser_download_url"]
+    try:
+        response = requests.get(
+            "https://api.github.com/repos/CallerixX/mouse_mover/releases/latest"
+        )
+        data = response.json()
+        
+        # Ищем ZIP-архив в активах релиза
+        assets = data.get("assets", [])
+        download_url = None
+        for asset in assets:
+            if asset["name"].endswith(".zip"):
+                download_url = asset["browser_download_url"]
+                break
+        
+        if not download_url:
+            raise Exception("Архив для обновления не найден в релизе")
 
-            # Скачать и заменить файлы
-            self.log_signal.emit("Начато скачивание обновления...")
+        # Скачивание (для Windows используем встроенные средства)
+        self.log_signal.emit("Скачивание обновления...")
+        if platform.system() == "Windows":
+            import urllib.request
+            urllib.request.urlretrieve(download_url, "update.zip")
+        else:
             os.system(f"curl -L {download_url} -o update.zip")
-            os.system("tar -xf update.zip --overwrite")
 
-            # Перезапуск
-            self.log_signal.emit("Перезапуск приложения...")
-            os.startfile(sys.executable)
-            QApplication.quit()
+        # Распаковка (Windows/Python)
+        self.log_signal.emit("Установка обновления...")
+        if platform.system() == "Windows":
+            import zipfile
+            with zipfile.ZipFile("update.zip", 'r') as zip_ref:
+                zip_ref.extractall(".", overwrite=True)
+        else:
+            os.system("unzip -o update.zip")
 
-        except Exception as e:
-            self.log_signal.emit(f"Ошибка обновления: {str(e)}")
+        # Удаление временного файла
+        if os.path.exists("update.zip"):
+            os.remove("update.zip")
+
+        # Перезапуск
+        self.log_signal.emit("Перезапуск...")
+        QApplication.quit()
+        os.startfile(sys.executable if getattr(sys, 'frozen', False) else __file__)
+
+    except Exception as e:
+        self.log_signal.emit(f"Ошибка обновления: {str(e)}")
+        QMessageBox.critical(self, "Ошибка", f"Не удалось обновить: {str(e)}")
 
     def update_status(self, active):
         color = "#00FF00" if active else "#FF0000"
