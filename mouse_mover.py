@@ -379,8 +379,8 @@ class MouseMoverApp(QMainWindow):
             )
             response.raise_for_status()  # Проверка HTTP статуса
             data = response.json()
-            latest_version = data.get('tag_name', 'v1.0')
-            current_version = "v1.0"
+            latest_version = data.get('tag_name', 'v1.1')
+            current_version = "v1.1"
             if latest_version > current_version:
                 self.update_available.emit(True, latest_version)
             else:
