@@ -414,28 +414,50 @@ class MouseMoverApp(QMainWindow):
     def perform_update(self):
         try:
             self.log_signal.emit("Начато скачивание обновления...")
-            
+
             # Получаем URL архива
+            self.log_signal.emit("Запрос информации о последнем релизе...")
             response = requests.get(
-                "https://api.github.com/repos/CallerixX/mouse_mover/releases/latest"
+                "https://api.github.com/repos/CallerixX/mouse_mover/releases/latest",
+                timeout=10
             )
             response.raise_for_status()
-            assets = response.json()["assets"]
+            assets = response.json().get("assets", [])
+            if not assets:
+                self.log_signal.emit("Ошибка: Нет доступных активов в релизе")
+                return
             download_url = assets[0]["browser_download_url"]
+            self.log_signal.emit(f"URL для скачивания: {download_url}")
 
             # Скачиваем архив
             self.log_signal.emit("Скачивание архива...")
-            r = requests.get(download_url, stream=True)
+            r = requests.get(download_url, stream=True, timeout=10)
+            r.raise_for_status()
             with open("update.zip", "wb") as f:
                 for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
+                    if chunk:
+                        f.write(chunk)
             self.log_signal.emit("Архив успешно скачан")
+
+            # Проверяем, существует ли архив
+            if not os.path.exists("update.zip"):
+                self.log_signal.emit("Ошибка: Архив update.zip не был создан")
+                return
 
             # Распаковываем архив
             self.log_signal.emit("Распаковка обновления...")
-            with zipfile.ZipFile("update.zip", "r") as zip_ref:
-                zip_ref.extractall("update_temp")
-            self.log_signal.emit("Архив успешно распакован")
+            try:
+                with zipfile.ZipFile("update.zip", "r") as zip_ref:
+                    zip_ref.extractall("update_temp")
+                self.log_signal.emit("Архив успешно распакован")
+            except zipfile.BadZipFile:
+                self.log_signal.emit("Ошибка: Архив update.zip поврежден")
+                return
+
+            # Проверяем наличие папки update_temp
+            if not os.path.exists("update_temp"):
+                self.log_signal.emit("Ошибка: Папка update_temp не создана")
+                return
 
             # Заменяем файлы
             self.log_signal.emit("Копирование новых файлов...")
@@ -444,20 +466,31 @@ class MouseMoverApp(QMainWindow):
                     src_path = os.path.join(root, file)
                     rel_path = os.path.relpath(src_path, "update_temp")
                     dst_path = os.path.join(os.getcwd(), rel_path)
-                    
-                    # Проверяем, не является ли файл текущим исполняемым скриптом
+
+                    # Пропускаем текущий исполняемый скрипт
                     if file == os.path.basename(sys.argv[0]):
                         self.log_signal.emit(f"Пропуск копирования текущего скрипта: {file}")
                         continue
-                    
+
                     os.makedirs(os.path.dirname(dst_path), exist_ok=True)
                     try:
                         shutil.copy2(src_path, dst_path)
                         self.log_signal.emit(f"Обновлен файл: {rel_path}")
                     except PermissionError:
                         self.log_signal.emit(f"Ошибка: Нет прав для замены файла {rel_path}")
+                        return
                     except Exception as e:
                         self.log_signal.emit(f"Ошибка при копировании файла {rel_path}: {str(e)}")
+                        return
+
+            # Проверяем, обновился ли version.txt
+            if os.path.exists("version.txt"):
+                with open("version.txt", "r") as f:
+                    new_version = f.read().strip()
+                self.log_signal.emit(f"Новая версия после обновления: {new_version}")
+            else:
+                self.log_signal.emit("Ошибка: Файл version.txt не найден после обновления")
+                return
 
             # Очищаем временные файлы
             self.log_signal.emit("Очистка временных файлов...")
@@ -466,12 +499,14 @@ class MouseMoverApp(QMainWindow):
             self.log_signal.emit("Временные файлы удалены")
 
             # Перезапуск приложения
-            self.log_signal.emit("Перезапуск приложения...")
-            subprocess.Popen([sys.executable, sys.argv[0]])
+            self.log_signal.emit(f"Запуск команды: {sys.executable} {sys.argv[0]}")
+            subprocess.Popen([sys.executable, os.path.abspath(sys.argv[0])])
             QApplication.quit()
 
+        except requests.exceptions.RequestException as e:
+            self.log_signal.emit(f"Ошибка сетевого запроса: {str(e)}")
         except Exception as e:
-            self.log_signal.emit(f"Ошибка обновления: {str(e)}")
+            self.log_signal.emit(f"Общая ошибка обновления: {str(e)}")
 
     def update_status(self, active):
         color = "#00FF00" if active else "#FF0000"
