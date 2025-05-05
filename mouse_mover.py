@@ -18,6 +18,8 @@ import pyautogui
 import platform
 import subprocess
 import os
+import zipfile
+import shutil
 
 class MouseMoverApp(QMainWindow):
     log_signal = pyqtSignal(str)
@@ -373,14 +375,21 @@ class MouseMoverApp(QMainWindow):
 
     def check_update(self):
         try:
+            try:
+                with open("version.txt", "r") as f:
+                    current_version = f.read().strip()
+            except FileNotFoundError:
+                current_version = "v1.0"
+                self.log_signal.emit("Файл version.txt не найден, используется версия по умолчанию v1.0")
+
             response = requests.get(
                 "https://api.github.com/repos/CallerixX/mouse_mover/releases/latest",
                 timeout=5
             )
-            response.raise_for_status()  # Проверка HTTP статуса
+            response.raise_for_status()
             data = response.json()
-            latest_version = data.get('tag_name', 'v1.1')
-            current_version = "v1.1"
+            latest_version = data.get('tag_name', 'v1.0')
+            
             if latest_version > current_version:
                 self.update_available.emit(True, latest_version)
             else:
@@ -404,69 +413,53 @@ class MouseMoverApp(QMainWindow):
 
     def perform_update(self):
         try:
-            self.log_signal.emit("=== Начало процесса обновления ===")
+            self.log_signal.emit("Начато скачивание обновления...")
             
-            # Получаем данные о последнем релизе
+            # Получаем URL архива
             response = requests.get(
-                "https://api.github.com/repos/CallerixX/mouse_mover/releases/latest",
-                timeout=10
+                "https://api.github.com/repos/CallerixX/mouse_mover/releases/latest"
             )
-            response.raise_for_status()
-            data = response.json()
-            self.log_signal.emit(f"Данные релиза: {data.get('tag_name')}")
+            assets = response.json()["assets"]
+            download_url = assets[0]["browser_download_url"]
 
-            # Ищем ZIP-архив
-            assets = data.get("assets", [])
-            if not assets:
-                raise Exception("Нет файлов для скачивания в релизе")
+            # Скачиваем архив
+            r = requests.get(download_url, stream=True)
+            with open("update.zip", "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
 
-            download_url = None
-            for asset in assets:
-                if asset["name"].lower().endswith(".zip"):
-                    download_url = asset["browser_download_url"]
-                    self.log_signal.emit(f"Найден архив: {asset['name']}")
-                    break
+            # Распаковываем архив
+            self.log_signal.emit("Распаковка обновления...")
+            with zipfile.ZipFile("update.zip", "r") as zip_ref:
+                zip_ref.extractall("update_temp")
 
-            if not download_url:
-                raise Exception("ZIP-архив не найден в активах")
+            # Заменяем файлы
+            for root, _, files in os.walk("update_temp"):
+                for file in files:
+                    src_path = os.path.join(root, file)
+                    # Определяем относительный путь
+                    rel_path = os.path.relpath(src_path, "update_temp")
+                    dst_path = os.path.join(os.getcwd(), rel_path)
+                    
+                    # Создаем директории, если они не существуют
+                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                    
+                    # Заменяем файл
+                    shutil.copy2(src_path, dst_path)
+                    self.log_signal.emit(f"Обновлен файл: {rel_path}")
 
-            # Скачивание
-            self.log_signal.emit(f"Скачивание из {download_url}...")
-            zip_path = os.path.join(os.path.dirname(__file__), "update.zip")
-            
-            if platform.system() == "Windows":
-                import urllib.request
-                urllib.request.urlretrieve(download_url, zip_path)
-            else:
-                os.system(f"curl -L {download_url} -o {zip_path}")
+            # Очищаем временные файлы
+            shutil.rmtree("update_temp")
+            os.remove("update.zip")
 
-            # Распаковка
-            self.log_signal.emit("Распаковка...")
-            if platform.system() == "Windows":
-                import zipfile
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(os.path.dirname(__file__))
-            else:
-                os.system(f"unzip -o {zip_path} -d {os.path.dirname(__file__)}")
-
-            # Удаление архива
-            if os.path.exists(zip_path):
-                os.remove(zip_path)
-                self.log_signal.emit("Временный архив удалён")
-
-            # Перезапуск
-            self.log_signal.emit("Завершено. Перезапуск...")
+            # Перезапуск приложения
+            self.log_signal.emit("Перезапуск приложения...")
+            # Для кроссплатформенности используем subprocess
+            subprocess.Popen([sys.executable, sys.argv[0]])
             QApplication.quit()
-            
-            # Запуск новой версии
-            if getattr(sys, 'frozen', False):
-                os.startfile(sys.executable)
-            else:
-                os.execl(sys.executable, sys.executable, *sys.argv)
 
         except Exception as e:
-            self.log_signal.emit(f"!!! ОШИБКА ОБНОВЛЕНИЯ: {str(e)}")
-            QMessageBox.critical(self, "Ошибка", f"Не удалось обновить: {str(e)}")
+            self.log_signal.emit(f"Ошибка обновления: {str(e)}")
 
     def update_status(self, active):
         color = "#00FF00" if active else "#FF0000"
