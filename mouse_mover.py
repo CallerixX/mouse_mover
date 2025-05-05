@@ -419,42 +419,54 @@ class MouseMoverApp(QMainWindow):
             response = requests.get(
                 "https://api.github.com/repos/CallerixX/mouse_mover/releases/latest"
             )
+            response.raise_for_status()
             assets = response.json()["assets"]
             download_url = assets[0]["browser_download_url"]
 
             # Скачиваем архив
+            self.log_signal.emit("Скачивание архива...")
             r = requests.get(download_url, stream=True)
             with open("update.zip", "wb") as f:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
+            self.log_signal.emit("Архив успешно скачан")
 
             # Распаковываем архив
             self.log_signal.emit("Распаковка обновления...")
             with zipfile.ZipFile("update.zip", "r") as zip_ref:
                 zip_ref.extractall("update_temp")
+            self.log_signal.emit("Архив успешно распакован")
 
             # Заменяем файлы
+            self.log_signal.emit("Копирование новых файлов...")
             for root, _, files in os.walk("update_temp"):
                 for file in files:
                     src_path = os.path.join(root, file)
-                    # Определяем относительный путь
                     rel_path = os.path.relpath(src_path, "update_temp")
                     dst_path = os.path.join(os.getcwd(), rel_path)
                     
-                    # Создаем директории, если они не существуют
-                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                    # Проверяем, не является ли файл текущим исполняемым скриптом
+                    if file == os.path.basename(sys.argv[0]):
+                        self.log_signal.emit(f"Пропуск копирования текущего скрипта: {file}")
+                        continue
                     
-                    # Заменяем файл
-                    shutil.copy2(src_path, dst_path)
-                    self.log_signal.emit(f"Обновлен файл: {rel_path}")
+                    os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                    try:
+                        shutil.copy2(src_path, dst_path)
+                        self.log_signal.emit(f"Обновлен файл: {rel_path}")
+                    except PermissionError:
+                        self.log_signal.emit(f"Ошибка: Нет прав для замены файла {rel_path}")
+                    except Exception as e:
+                        self.log_signal.emit(f"Ошибка при копировании файла {rel_path}: {str(e)}")
 
             # Очищаем временные файлы
-            shutil.rmtree("update_temp")
+            self.log_signal.emit("Очистка временных файлов...")
+            shutil.rmtree("update_temp", ignore_errors=True)
             os.remove("update.zip")
+            self.log_signal.emit("Временные файлы удалены")
 
             # Перезапуск приложения
             self.log_signal.emit("Перезапуск приложения...")
-            # Для кроссплатформенности используем subprocess
             subprocess.Popen([sys.executable, sys.argv[0]])
             QApplication.quit()
 
