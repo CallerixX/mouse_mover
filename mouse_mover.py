@@ -404,50 +404,68 @@ class MouseMoverApp(QMainWindow):
 
     def perform_update(self):
     try:
-        response = requests.get(
-            "https://api.github.com/repos/CallerixX/mouse_mover/releases/latest"
-        )
-        data = response.json()
+        self.log_signal.emit("=== Начало процесса обновления ===")
         
-        # Ищем ZIP-архив в активах релиза
+        # Получаем данные о последнем релизе
+        response = requests.get(
+            "https://api.github.com/repos/CallerixX/mouse_mover/releases/latest",
+            timeout=10
+        )
+        response.raise_for_status()
+        data = response.json()
+        self.log_signal.emit(f"Данные релиза: {data.get('tag_name')}")
+
+        # Ищем ZIP-архив
         assets = data.get("assets", [])
+        if not assets:
+            raise Exception("Нет файлов для скачивания в релизе")
+
         download_url = None
         for asset in assets:
-            if asset["name"].endswith(".zip"):
+            if asset["name"].lower().endswith(".zip"):
                 download_url = asset["browser_download_url"]
+                self.log_signal.emit(f"Найден архив: {asset['name']}")
                 break
-        
-        if not download_url:
-            raise Exception("Архив для обновления не найден в релизе")
 
-        # Скачивание (для Windows используем встроенные средства)
-        self.log_signal.emit("Скачивание обновления...")
+        if not download_url:
+            raise Exception("ZIP-архив не найден в активах")
+
+        # Скачивание
+        self.log_signal.emit(f"Скачивание из {download_url}...")
+        zip_path = os.path.join(os.path.dirname(__file__), "update.zip")
+        
         if platform.system() == "Windows":
             import urllib.request
-            urllib.request.urlretrieve(download_url, "update.zip")
+            urllib.request.urlretrieve(download_url, zip_path)
         else:
-            os.system(f"curl -L {download_url} -o update.zip")
+            os.system(f"curl -L {download_url} -o {zip_path}")
 
-        # Распаковка (Windows/Python)
-        self.log_signal.emit("Установка обновления...")
+        # Распаковка
+        self.log_signal.emit("Распаковка...")
         if platform.system() == "Windows":
             import zipfile
-            with zipfile.ZipFile("update.zip", 'r') as zip_ref:
-                zip_ref.extractall(".", overwrite=True)
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(os.path.dirname(__file__))
         else:
-            os.system("unzip -o update.zip")
+            os.system(f"unzip -o {zip_path} -d {os.path.dirname(__file__)}")
 
-        # Удаление временного файла
-        if os.path.exists("update.zip"):
-            os.remove("update.zip")
+        # Удаление архива
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+            self.log_signal.emit("Временный архив удалён")
 
         # Перезапуск
-        self.log_signal.emit("Перезапуск...")
+        self.log_signal.emit("Завершено. Перезапуск...")
         QApplication.quit()
-        os.startfile(sys.executable if getattr(sys, 'frozen', False) else __file__)
+        
+        # Запуск новой версии
+        if getattr(sys, 'frozen', False):
+            os.startfile(sys.executable)
+        else:
+            os.execl(sys.executable, sys.executable, *sys.argv)
 
     except Exception as e:
-        self.log_signal.emit(f"Ошибка обновления: {str(e)}")
+        self.log_signal.emit(f"!!! ОШИБКА ОБНОВЛЕНИЯ: {str(e)}")
         QMessageBox.critical(self, "Ошибка", f"Не удалось обновить: {str(e)}")
 
     def update_status(self, active):
